@@ -1,0 +1,306 @@
+---
+title: "GPA Trends and Predictive Modeling"
+author: "Thomas Wright"
+output:
+  ioslides_presentation: default
+  html_document:
+    pdf_print: paged
+  slidy_presentation: default
+  pdf_document:
+---
+
+<style type="text/css">
+body p, div, h1, h2, h3, h4, h5 {
+color: black;
+font-family: Modern Computer Roman;
+}
+slides > slide.title-slide hgroup h1 {
+color: #8C1D40;
+}
+h2 {
+color: #8C1D40;
+}
+</style>
+
+## Introduction
+
+- **Dataset**: Academic Performance of University Student Dataset by Krishnansh Verma (Kaggle)
+- **Sample**: Roughly 3000 Undergraduate students with GPA records from first year to graduation
+- **Key Variables**:
+    - `CGPA100`: First-Year GPA  
+    - `CGPA`: Final Cumulative GPA  
+    - `SGPA`: Secondary School GPA  
+    - `Prog.Code`: Academic Program
+- **Goal**: Analyze GPA progression and identify early predictors of Final Cumulative GPA
+
+## Research Questions
+
+1. **How does GPA change across academic years?**  
+   - Explore GPA distributions from Freshman to Senior year  
+   - Visualize student performance progression
+
+2. **Can First-Year GPA predict Final GPA?**  
+   - Fit a linear regression using CGPA100  
+   - Evaluate strength and significance of the relationship
+
+3. **Does Program of Study significantly affect Final GPA?**  
+   - Use multiple regression to control for academic background and gender  
+   - Estimate each program's adjusted effect compared to the average
+
+
+## Data Preparation {.smaller}
+
+```{r, dataWrangling, warning=FALSE, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(knitr)
+library(ggridges)
+library(RColorBrewer)
+library(tinytex)
+
+gpaData <- read.csv("C:/Users/there/OneDrive/Desktop/academic_performance_dataset_V2.csv")
+
+gpaData_long <- gpaData %>%
+  pivot_longer(cols = c(CGPA100, CGPA200, CGPA300, CGPA400),
+               names_to = "Year", values_to = "Yearly_CGPA")
+
+gpaData_long$Year <- factor(gpaData_long$Year, levels = c("CGPA100", "CGPA200", 
+                                                "CGPA300", "CGPA400"),
+                       labels = c("Freshman", "Sophomore", 
+                                  "Junior", "Senior"))
+
+gpaData <- gpaData %>%
+  mutate(
+    Program_Name = recode(Prog.Code,
+      "BCH" = "Biochem", "BLD" = "Building Tech",
+      "CEN" = "Comp E", "CHE" = "Chem E",
+      "CHM" = "Ind Chem", "CIS" = "Comp Sci",         
+      "CVE" = "Civil", "EEE" = "EEE",
+      "ICE" = "Info Comm", "MAT" = "Math",
+      "MCB" = "Microbio", "MCE" = "Mech E",
+      "MIS" = "Mgmt Info Sys",
+      "PET" = "Petrol E", "PHYE" = "Ind Phys - E/IT",
+      "PHYG" = "Ind Phys - Geo", "PHYR" = "Ind Phys - Renew"
+    ),
+    Program_Name = factor(Program_Name),
+    Gender = factor(Gender)
+  )
+```
+
+<div style="margin-top: -40px;">
+</div>
+
+First the data needs to be reshaped and make it ready for modeling.
+```{r presentationCode, eval=FALSE}
+gpaData <- read.csv("academic_performance_dataset_V2.csv")
+
+gpaData_long <- gpaData %>%
+  pivot_longer(cols = CGPA100:CGPA400,
+               names_to = "Year",
+               values_to = "Yearly_CGPA") %>%
+  mutate(Year = factor(Year,
+               levels = c("CGPA100", "CGPA200", "CGPA300", "CGPA400"),
+               labels = c("Freshman", "Sophomore", "Junior", "Senior")))
+```
+Reshaped GPA columns from wide to long format to make it easier to visualize year-by-year GPA trends using ggplot
+```{r presentationCode1, eval=FALSE}
+gpaData <- gpaData %>%
+  mutate(
+    Program_Name = recode(Prog.Code,
+      "CIS" = "Comp Sci", "MIS" = "Mgmt Info Sys", "CHE" = "Chem E", ...),
+    Program_Name = factor(Program_Name),
+    Gender = factor(Gender))
+```
+Replaced program codes with descriptive labels and converted categorical variables (Gender, Program) to factors for proper group comparisons in the regression model.
+
+## GPA Distribution by Year {.larger}
+
+```{r, GPAdistribution, echo=FALSE, fig.width=8, fig.height=5}
+ggplot(gpaData_long, aes(x = Yearly_CGPA, fill = Year)) +
+  geom_histogram(bins = 20, alpha = 0.7) +
+  facet_wrap(~ Year, scales = "free_y", ncol = 2) +
+  scale_fill_manual(values = c(
+    "Freshman" = "lightblue",
+    "Sophomore" = "lightgreen",
+    "Junior" = "lightyellow3",
+    "Senior" = "lightpink"
+  )) +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "GPA",
+    y = "Count"
+  )
+```
+
+## GPA Progression
+
+```{r, GPAboxplot, echo=FALSE}
+ggplot(gpaData_long, aes(x = Year, y = Yearly_CGPA, fill = Year)) +
+  geom_boxplot(alpha = 0.8) +
+  scale_fill_manual(values = c(
+    "Freshman" = "lightblue", 
+    "Sophomore" = "lightgreen", 
+    "Junior" = "lightyellow2",
+    "Senior" = "lightpink"      
+  )) +
+  theme_minimal(base_size = 14) +
+  labs(title = "GPA Trends from Freshman to Senior Year",
+       x = "Year",
+       y = "GPA") +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "none"
+  )
+```
+
+## Predicting Final GPA from First-Year Performance {.smaller}
+
+```{r, linearModel, echo=FALSE, message=FALSE, warning=FALSE}
+model1 <- lm(CGPA ~ CGPA100, data = gpaData)
+sum1 <- summary(model1)
+coeffs <- sum1$coefficients
+r2_value <- round(sum1$r.squared,3)
+r_value <- round(sign(coeffs["CGPA100", "Estimate"]) * sqrt(r2_value), 3)
+```
+
+<div style="margin-top: -60px;">
+</div>
+
+```{r, regressionPlot, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(gpaData, aes(x = CGPA100, y = CGPA)) +
+  geom_point(alpha = 0.5, color = "steelblue1") +
+  geom_smooth(method = "lm", se = TRUE, color = "red", fill = "gray") +
+  annotate("text", x = 1, y = 4.1, label = paste0("r = ", r_value, ", r² = ", r2_value), size = 5, hjust = 0) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_blank()) +
+  labs(x = "First-Year GPA (CGPA100)", y = "Final GPA (CGPA)")
+```
+
+<div style="margin-top: -10px;">
+</div>
+
+The correlation between First-Year GPA and Final GPA is strong (r = 0.792).  
+Each 1-point increase in First-Year GPA is associated with a +0.81-point increase in Final GPA.  
+This effect is precise (SE = 0.011) and highly statistically significant (p < 0.001).  
+
+## Does Program Matter? {.larger}
+
+```{r, gpaRidgePlot, warning=FALSE, echo=FALSE, message=FALSE, fig.width=8, fig.height=5}
+gpaData$Program_Name <- reorder(gpaData$Program_Name, gpaData$CGPA, median)
+
+pastel_colors <- colorRampPalette(brewer.pal(9, "Pastel1"))(length(unique(gpaData$Program_Name)))
+
+ggplot(gpaData, aes(x = CGPA, y = Program_Name, fill = Program_Name)) +
+  geom_density_ridges(scale = 2, alpha = 0.9) +
+  scale_fill_manual(values = pastel_colors) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12),
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    legend.position = "none"
+  ) +
+  labs(
+    title = "Final CGPA Distribution by Program",
+    x = "Final CGPA",
+    y = NULL,
+    caption = "Each ridge shows the GPA distribution by program. Programs are sorted by median CGPA."
+  ) +
+  xlim(1, 5)
+```
+
+
+## Do Some Programs Boost GPA More Than Others?
+
+<div style="margin-top: -40px;">
+$$
+{\scriptsize
+\text{CGPA} = \beta_0 + \beta_1 \, \text{CGPA100} + \beta_2 \, \text{SGPA} + \beta_3 \, \text{Gender} + \sum_{i=1}^{I-1} \gamma_i \, \text{Program}_{i} + \varepsilon
+}
+$$
+</div>
+
+```{r, programEffectsModel, message=FALSE, warning=FALSE, echo=FALSE}
+contrasts(gpaData$Program_Name) <- contr.sum
+program_labels <- levels(gpaData$Program_Name)[-length(levels(gpaData$Program_Name))]
+model2 <- lm(CGPA ~ CGPA100 + SGPA + Gender + Program_Name, data = gpaData)
+
+program_gpaData <- summary(model2)$coefficients %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_starts(term, "Program_Name")) %>%
+  mutate(
+    Program = program_labels, 
+    CI_low = Estimate - 1.96 * `Std. Error`,
+    CI_high = Estimate + 1.96 * `Std. Error`
+  ) %>%
+  select(Program, Estimate, `Std. Error`, CI_low, CI_high) %>%
+  arrange(Estimate) %>%
+  mutate(Program = factor(Program, levels = Program)) 
+
+# Create Gender and Chem E rows
+extra_rows <- bind_rows(
+  summary(model2)$coefficients %>%
+    as.data.frame() %>%
+    rownames_to_column("term") %>%
+    filter(term == "GenderMale") %>%
+    mutate(
+      Program = "Male vs Female",
+      CI_low = Estimate - 1.96 * `Std. Error`,
+      CI_high = Estimate + 1.96 * `Std. Error`
+    ) %>%
+    select(Program, Estimate, `Std. Error`, CI_low, CI_high),
+  
+# Manually adding  Chem E for plotting  
+  tibble(
+    Program = "Chem E",
+    Estimate = -sum(program_gpaData$Estimate),
+    `Std. Error` = NA,
+    CI_low = NA,
+    CI_high = NA
+  )
+)
+
+program_gpaData <- bind_rows(program_gpaData, extra_rows) %>%
+  arrange(Estimate) %>%
+  mutate(Program = factor(Program, levels = Program))
+```
+
+<div style="margin-top: -20px;">
+</div>
+```{r, programEffectsPlot, echo=FALSE}
+ggplot(program_gpaData, aes(x = Estimate, y = Program)) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_errorbarh(
+    aes(xmin = CI_low, xmax = CI_high),
+    height = 0.2, color = "gray50", na.rm = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 0.5) +
+  theme_minimal(base_size = 13) +
+  theme(plot.subtitle = element_text(size = 12)) +
+  labs(
+    x = "Effect on Final GPA",
+    y = NULL,
+    title = "Estimated Program Effects",
+    subtitle = "Compared to Average Program, Controlling for Academic Background and Gender",
+    caption = "Includes gender effect for reference. Negative value indicates males scored lower, on average."
+  )
+
+```
+
+
+## Conclusions {.smaller}
+<div style="margin-top: -20px;">
+</div>
+- **First-Year GPA is a strong predictor of final GPA**  
+  - Alone, it explains ~63% of the variance (R² = 0.63)
+
+- **Multiple regression improves explanatory power**  
+  - Adding secondary school GPA, gender, and program increases R² to 0.72
+
+- **Academic background and gender have significant effects**  
+  - Students with higher secondary school GPAs and freshman year GPAs tend to finish stronger  
+  - Males had lower final GPAs on average, controlling for other factors
+
+- **Some programs were associated with significantly higher or lower final GPAs (adjusted for background)**
+  - Building Technology and Industrial Chemistry: ~0.3 to 0.4 GPA points above the adjusted average  
+  - Electrical and Petroleum Engineering: ~0.2 to 0.25 GPA points below the adjusted average  
+  - Effects account for differences in first-year GPA, secondary GPA, and gender
