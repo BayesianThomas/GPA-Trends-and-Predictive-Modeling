@@ -1,0 +1,13 @@
+# Treat R and R Markdown files as R
+*.R linguist-language=R
+*.Rmd linguist-language=R
+
+# Ignore knitted outputs from language stats
+*.html linguist-vendored
+*.pdf linguist-vendored
+*.docx linguist-vendored
+
+# (Optional) If you also have images or data files, mark them as vendored too:
+*.png linguist-vendored
+*.jpg linguist-vendored
+*.csv linguist-vendored
